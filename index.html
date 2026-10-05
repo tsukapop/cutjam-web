@@ -408,11 +408,11 @@
    ============================================================ */
 "use strict";
 // ---------- BUILD FLAGS (public beta) ----------
-// Beta build: XML export is visible but locked; video export (watermarked, in-browser) stays on.
+// Beta build: XML/CSV export are visible but locked; video export (watermarked, in-browser) stays on.
 const BETA=true;
-const FEATURES={ xml:!BETA };
+const FEATURES={ xml:!BETA, csv:!BETA };
 const WATERMARK = BETA ? 'CUT JAM · BETA' : 'CUT JAM';
-function lockedToast(){ toast('XML export is locked in the beta — coming in the full version.'); }
+function lockedToast(kind){ toast((kind||'XML')+' export is locked in the beta — coming in the full version.'); }
 
 // Surface any startup error instead of dying to a black screen.
 window.addEventListener('error', e=>{
@@ -1489,6 +1489,7 @@ function buildPremiereXML(){
   return xml;
 }
 function exportCSV(){
+  if(!FEATURES.csv){ lockedToast('CSV'); return; }
   if(!S.clips.length){ toast('Nothing to export yet.'); return; }
   let csv='index,channel,source_file,timeline_in_sec,timeline_out_sec,timeline_in_frames,timeline_out_frames,source_in_sec\n';
   S.clips.forEach((c,i)=>{
@@ -1880,7 +1881,8 @@ if(!FEATURES.xml){
   ['exportXml','mExport'].forEach(id=>{ const b=document.getElementById(id); if(b){ b.classList.add('locked'); b.classList.remove('gold'); b.title='XML export — locked in the beta'; b.setAttribute('aria-disabled','true'); } });
 }
 if(!BETA){ const t=document.getElementById('betaTag'); if(t) t.remove(); }
-if(!FEATURES.xml){ const h=document.getElementById('hintNle'); if(h) h.textContent='CSV cut list · XML in the full version.'; }
+if(!FEATURES.csv){ const b=document.getElementById('exportCsv'); if(b){ b.classList.add('locked'); b.title='CSV export — locked in the beta'; b.setAttribute('aria-disabled','true'); } }
+if(!FEATURES.xml || !FEATURES.csv){ const h=document.getElementById('hintNle'); if(h) h.textContent='XML/CSV for your NLE in the full version.'; }
 requestAnimationFrame(loop);
 </script>
 </body>
