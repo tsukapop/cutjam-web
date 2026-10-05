@@ -32,6 +32,10 @@
   .brand{display:flex; align-items:baseline; gap:12px}
   .brand h1{margin:0; font-size:18px; font-weight:700; letter-spacing:.34em}
   .brand .sub{font-size:10px; color:var(--dim); letter-spacing:.25em}
+  .brand{position:relative}
+  .beta-tag{position:absolute; left:0; top:100%; margin-top:3px; font-size:8px; font-weight:700; letter-spacing:.2em; color:var(--gold); border:1px solid rgba(245,182,66,.5); border-radius:4px; padding:1px 5px; line-height:1.4}
+  .ghost.locked{opacity:.38; cursor:not-allowed}
+  .ghost.locked:hover{border-color:var(--line); color:var(--dim)}
   .readout{display:flex; align-items:center; gap:22px; font-family:var(--mono)}
   .tc{font-size:26px; font-weight:600; letter-spacing:.04em; font-variant-numeric:tabular-nums}
   .meta{font-size:11px; color:var(--dim); display:flex; gap:14px; font-variant-numeric:tabular-nums}
@@ -211,6 +215,13 @@
     border:1px solid var(--line); border-radius:7px; padding:7px 9px; font-family:var(--mono); font-size:11px}
   .xnote{font-size:10px; line-height:1.8; color:var(--dim); letter-spacing:.06em; margin:14px 0 18px;
     border-left:2px solid var(--line); padding-left:10px}
+  .midi-pads{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+  .midi-slot{display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:8px 10px; text-align:left}
+  .midi-slot b{font-size:13px; color:var(--text)}
+  .midi-slot span{font-family:var(--mono); font-size:10px; letter-spacing:.06em}
+  .midi-slot.set{border-color:rgba(245,182,66,.5); color:var(--gold)}
+  .midi-slot.learning{border-color:var(--gold); color:var(--gold); animation:learnPulse 1s ease-in-out infinite}
+  @keyframes learnPulse{50%{box-shadow:0 0 14px -2px rgba(245,182,66,.7)}}
   #midiList input[type=range]{-webkit-appearance:none; appearance:none; height:4px; border-radius:3px; background:var(--panel-2); outline:none}
   #midiList input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:15px; height:15px; border-radius:50%; background:var(--gold); cursor:pointer; box-shadow:0 0 8px rgba(245,182,66,.5)}
   #midiList input[type=range]::-moz-range-thumb{width:15px; height:15px; border:none; border-radius:50%; background:var(--gold); cursor:pointer}
@@ -225,6 +236,7 @@
     <div class="brand">
       <h1>CUT&nbsp;JAM</h1>
       <span class="sub">TAP-TO-CUT DECK</span>
+      <span class="beta-tag" id="betaTag" title="Public beta — some features are locked">BETA</span>
     </div>
     <div class="readout">
       <div class="tc" id="tc">00:00:00</div>
@@ -235,7 +247,7 @@
       </div>
     </div>
     <div class="head-actions">
-      <button class="ghost" id="midiBtn" title="Connect a MIDI controller (AKAI MPK mini etc.)">MIDI</button>
+      <button class="ghost" id="midiBtn" title="MIDI controller — detected automatically; click to map pads / knobs">MIDI</button>
       <button class="ghost" id="viewBtn" title="Cycle view: disc / bg / full (F)">VIEW: DISC</button>
       <label class="ghost gold">LOAD AUDIO<input type="file" id="audioInput" accept="audio/*" hidden></label>
       <button class="ghost" id="loadAllBtn" title="Import many clips, all onto pad 1">LOAD ALL→1</button>
@@ -255,7 +267,8 @@
       3 — <kbd>●</kbd> REC → 3-count → tap <kbd>1</kbd>–<kbd>9</kbd> on the beat.<br>
       4 — <kbd>▶</kbd> to watch · drag the disc to scrub · <kbd>F</kbd> view.<br>
       5 — <kbd>S</kbd> shuffle · <kbd>A</kbd> all-shuffle · select a clip + <kbd>1</kbd>–<kbd>9</kbd>.<br>
-      6 — EXPORT VIDEO (720p) for the clean render · XML/CSV for your NLE.
+      6 — EXPORT VIDEO (720p) for the clean render · <span id="hintNle">XML/CSV for your NLE.</span><br>
+      <span id="hintMidi">MIDI pads &amp; knobs work too — just plug in (Chrome / Edge).</span>
     </div>
 
     <div class="deck-wrap">
@@ -323,7 +336,13 @@
     <div class="modal-btns" style="justify-content:flex-start; margin:-6px 0 16px">
       <button class="ghost gold" id="midiConnect">CONNECT</button>
     </div>
-    <div style="font-size:10px;color:var(--dim);letter-spacing:.14em;margin-bottom:10px">KNOBS — turn a knob to detect it, then set how far the timeline moves per turn. Pads → cuts (1–9).</div>
+    <div style="font-size:10px;color:var(--dim);letter-spacing:.14em;margin-bottom:10px">PADS — any controller works out of the box (auto layout). To choose which pad does what, click a slot and hit a pad, or LEARN ALL and hit 9 pads in order.</div>
+    <div id="midiPads" class="midi-pads"></div>
+    <div class="modal-btns" style="justify-content:flex-start; margin:10px 0 18px">
+      <button class="ghost gold" id="midiLearnAll">LEARN ALL 1→9</button>
+      <button class="ghost" id="midiResetPads">RESET TO AUTO</button>
+    </div>
+    <div style="font-size:10px;color:var(--dim);letter-spacing:.14em;margin-bottom:10px">KNOBS — turn a knob to detect it, then set how far the timeline moves per turn.</div>
     <div id="midiList" style="display:flex;flex-direction:column;gap:11px;max-height:42vh;overflow:auto"></div>
     <div class="modal-btns" style="margin-top:18px"><button class="ghost" id="midiCloseBtn">CLOSE</button></div>
   </div>
@@ -388,6 +407,12 @@
    CUT JAM — dependency-free. Master clock = AudioContext.
    ============================================================ */
 "use strict";
+// ---------- BUILD FLAGS (public beta) ----------
+// Beta build: XML export is visible but locked; video export (watermarked, in-browser) stays on.
+const BETA=true;
+const FEATURES={ xml:!BETA };
+const WATERMARK = BETA ? 'CUT JAM · BETA' : 'CUT JAM';
+function lockedToast(){ toast('XML export is locked in the beta — coming in the full version.'); }
 
 // Surface any startup error instead of dying to a black screen.
 window.addEventListener('error', e=>{
@@ -874,8 +899,9 @@ function recDraw(){
   blitStage(recCtx, STAGE_W, STAGE_H);
   recCtx.font='700 26px "Chakra Petch", system-ui, sans-serif';
   recCtx.textAlign='right'; recCtx.textBaseline='alphabetic';
-  recCtx.fillStyle='rgba(0,0,0,.35)'; recCtx.fillRect(STAGE_W-168,STAGE_H-50,150,34);
-  recCtx.fillStyle='rgba(255,255,255,.9)'; recCtx.fillText('CUT JAM', STAGE_W-26, STAGE_H-26);
+  const ww=recCtx.measureText(WATERMARK).width+36;
+  recCtx.fillStyle='rgba(0,0,0,.35)'; recCtx.fillRect(STAGE_W-18-ww,STAGE_H-50,ww,34);
+  recCtx.fillStyle='rgba(255,255,255,.9)'; recCtx.fillText(WATERMARK, STAGE_W-26, STAGE_H-26);
   recRAF=requestAnimationFrame(recDraw);
 }
 function stopBounce(){
@@ -1224,7 +1250,7 @@ function normBase(s){
 }
 function pathURL(name){ return 'file://localhost/'+encodeURI(normBase(xmlOpts.base)+name); }
 
-function openXmlExport(){ restoreXmlOpts(); document.getElementById('xmlBack').classList.add('show'); }
+function openXmlExport(){ if(!FEATURES.xml){ lockedToast(); return; } restoreXmlOpts(); document.getElementById('xmlBack').classList.add('show'); }
 function closeXmlExport(){ document.getElementById('xmlBack').classList.remove('show'); }
 function readXmlOpts(){
   xmlOpts.format=document.getElementById('xFormat').value;
@@ -1234,6 +1260,7 @@ function readXmlOpts(){
 }
 // Dispatcher — the header button opens the dialog, this runs the chosen flavour.
 function exportXML(){
+  if(!FEATURES.xml){ lockedToast(); return; }
   if(!S.clips.length){ toast('Nothing to export yet.'); return; }
   if(xmlOpts.format==='davinci'){
     const r=buildDavinciXML();
@@ -1626,43 +1653,95 @@ function jog(deltaSec){
   deck.addEventListener('pointercancel',end);
 })();
 
-// ---------- WEB MIDI (AKAI MPK mini etc.) ----------
-// Pads (any Note On) → cuts, auto-aligned to the lowest pad note seen.
-// Knobs (any CC) → jog; per-knob sensitivity is editable in the MIDI panel.
-let midiAccess=null, midiBase=null, midiLast={}, midiSensMap={}, midiSeenPad=false, midiConfigOpen=false;
-const MIDI_DEFAULT_SENS=0.05;
+// ---------- WEB MIDI (any class-compliant controller) ----------
+// Devices are picked up automatically (incl. hot-plug) on every input port, every channel.
+// Pads: Note On / Program Change (and learned CCs) → pads 1–9.
+//   Auto map: GM drum layout (note 36 = pad 1, wraps every 9) — fits MPK mini, MPD, nanoPAD,
+//   Beatstep, LPD8, Launchkey… Anything else (or a custom order) → LEARN in the MIDI panel.
+// Knobs (any other CC) → jog; per-knob sensitivity is editable in the MIDI panel.
+let midiAccess=null, midiLowest=null, midiLast={}, midiRel={}, midiSensMap={}, midiPadMap={}, midiLearn=-1, midiConfigOpen=false;
+const MIDI_DEFAULT_SENS=0.05, MIDI_GM_BASE=36;
 function setMidiStatus(txt, ok){
   const b=document.getElementById('midiBtn');
   if(b){ b.classList.toggle('gold', ok===true); }
   const s=document.getElementById('midiStat'); if(s) s.textContent=txt;
+}
+function midiInputNames(){ const n=[]; if(midiAccess) midiAccess.inputs.forEach(p=>{ if(p.state!=='disconnected') n.push(p.name||'MIDI device'); }); return n; }
+function refreshMidiStatus(){
+  if(!midiAccess) return;
+  const names=midiInputNames();
+  if(names.length) setMidiStatus('Connected: '+names.join(', '), true);
+  else setMidiStatus('On — no device detected yet (plug in / power on).', true);
 }
 function initMIDI(fromGesture){
   if(!navigator.requestMIDIAccess){ setMidiStatus('Web MIDI needs Chrome or Edge (over file:// or https).', false); if(fromGesture) toast('Web MIDI needs Chrome / Edge.'); return; }
   navigator.requestMIDIAccess({sysex:false}).then(acc=>{
     midiAccess=acc;
     const bind=p=>{ try{ p.onmidimessage=onMIDI; }catch(_){}};
-    const names=[]; acc.inputs.forEach(p=>{ bind(p); names.push(p.name); });
-    acc.onstatechange=e=>{ if(e.port && e.port.type==='input'){ bind(e.port);
-      if(e.port.state==='connected'){ setMidiStatus('Connected: '+e.port.name, true); toast('MIDI connected — '+e.port.name); } } };
-    if(names.length){ setMidiStatus('Connected: '+names.join(', '), true); toast('MIDI ready — '+names.join(', ')); }
-    else { setMidiStatus('On — no device detected yet (plug in / power on).', true); toast('MIDI on — no device yet'); }
-  }).catch(()=>{ setMidiStatus('Permission denied — click CONNECT to retry.', false); toast('MIDI permission denied'); });
+    acc.inputs.forEach(bind);
+    acc.onstatechange=e=>{
+      if(!e.port || e.port.type!=='input') return;
+      if(e.port.state==='connected'){ bind(e.port); toast('MIDI connected — '+e.port.name); }
+      else toast('MIDI disconnected — '+e.port.name);
+      refreshMidiStatus();
+    };
+    refreshMidiStatus();
+    const names=midiInputNames();
+    if(names.length) toast('MIDI ready — '+names.join(', ')); else if(fromGesture) toast('MIDI on — no device yet');
+  }).catch(()=>{ setMidiStatus('Permission denied — click CONNECT to retry.', false); if(fromGesture) toast('MIDI permission denied'); });
 }
+// Auto pad for an unlearned note: GM drum base 36 → pad 1, wrapping every 9 so every pad/key does something.
+function midiAutoPad(note){
+  if(note>=MIDI_GM_BASE) return (note-MIDI_GM_BASE)%9;
+  if(midiLowest==null || note<midiLowest) midiLowest=note;     // controllers mapped below C1
+  return (note-midiLowest)%9;
+}
+function midiHitPad(n){
+  ensureCtx();
+  if(S.status!=='rec') flashPad(n);                            // visible feedback even when idle
+  padKey(n);
+}
+function midiLearnTake(key, label){
+  const n=midiLearn;
+  Object.keys(midiPadMap).forEach(k=>{ if(midiPadMap[k]===n) delete midiPadMap[k]; });  // one source per pad
+  midiPadMap[key]=n; delete midiSensMap[+key.slice(1)]; persistMidi(); flashPad(n);
+  toast(label+' → PAD '+(n+1));
+  midiLearn = (midiLearnSeq && n<8) ? n+1 : -1;               // LEARN ALL walks 1→9
+  renderMidiList();
+}
+let midiLearnSeq=false;
 function onMIDI(ev){
   try{
-    const d=ev.data, type=d[0]&0xF0, a=d[1], b=d[2];
-    if(type===0x90 && b>0){                          // Note On → pad
-      if(!midiSeenPad){ midiSeenPad=true; toast('MIDI pad: note '+a); }
-      if(midiBase==null || a<midiBase) midiBase=a;    // lowest pad → channel 1
-      ensureCtx(); padKey(Math.max(0, Math.min(8, a-midiBase)));
+    const d=ev.data; if(!d || d.length<2) return;
+    const type=d[0]&0xF0, a=d[1], b=d.length>2?d[2]:0;
+    if(type===0x90 && b>0){                                     // Note On
+      if(midiLearn>=0){ midiLearnTake('n'+a, 'Note '+a); return; }
+      const m=midiPadMap['n'+a];
+      midiHitPad(m!=null ? m : midiAutoPad(a));
       return;
     }
-    if(type===0xB0){                                  // CC → jog
+    if(type===0xC0){                                            // Program Change (LPD8 PROG mode etc.)
+      if(midiLearn>=0){ midiLearnTake('p'+a, 'Program '+a); return; }
+      const m=midiPadMap['p'+a];
+      midiHitPad(m!=null ? m : a%9);
+      return;
+    }
+    if(type===0xB0){
+      if(a>=120) return;                                        // channel-mode messages (all notes off…)
+      if(midiLearn>=0){ if(b>0) midiLearnTake('c'+a, 'CC '+a); return; }
+      const m=midiPadMap['c'+a];
+      if(m!=null){ if(b>0) midiHitPad(m); return; }             // CC learned as a pad
       if(midiSensMap[a]==null){ midiSensMap[a]=MIDI_DEFAULT_SENS; persistMidi(); if(midiConfigOpen) renderMidiList(); toast('MIDI knob: CC '+a); }
       const sens=midiSensMap[a];
-      let delta;
-      if(b===1) delta=1; else if(b===127) delta=-1;   // relative encoders
-      else { if(midiLast[a]==null){ midiLast[a]=b; return; } delta=b-midiLast[a]; midiLast[a]=b; }  // absolute pots
+      let delta=0;
+      // Relative encoders: two's-complement (1/127 …) or offset-binary (63/65 around 64).
+      // A pot never repeats 1/127 or 63/65 back-to-back, an encoder does — that's the tell.
+      const prev=midiLast[a]; midiLast[a]=b;
+      if((b===1||b===127) && prev===b) midiRel[a]='twos';
+      if((b===63||b===65) && (prev===63||prev===65)) midiRel[a]='off';
+      if(midiRel[a]==='twos' && (b<=15 || b>=113)) delta = b<64 ? b : b-128;
+      else if(midiRel[a]==='off' && b>=49 && b<=79) delta = b-64;
+      else { midiRel[a]=null; if(prev==null) return; delta=b-prev; }   // absolute pots
       if(delta) jog(delta*sens);
     }
   }catch(_){}
@@ -1671,13 +1750,29 @@ function onMIDI(ev){
 function openMidiConfig(){
   midiConfigOpen=true;
   document.getElementById('midiBack').classList.add('show');
-  if(!midiAccess) setMidiStatus('Not connected — click CONNECT.', null); else setMidiStatus('Connected.', true);
+  if(!midiAccess) initMIDI(true); else refreshMidiStatus();   // the click is the gesture Chrome wants
   renderMidiList();
 }
-function closeMidiConfig(){ midiConfigOpen=false; document.getElementById('midiBack').classList.remove('show'); }
+function closeMidiConfig(){ midiConfigOpen=false; midiLearn=-1; midiLearnSeq=false; document.getElementById('midiBack').classList.remove('show'); }
+function midiSrcLabel(k){ return ({n:'NOTE ',c:'CC ',p:'PROG '})[k[0]]+k.slice(1); }
 function renderMidiList(){
+  const pads=document.getElementById('midiPads');
+  if(pads){
+    pads.innerHTML='';
+    for(let i=0;i<9;i++){
+      const k=Object.keys(midiPadMap).find(x=>midiPadMap[x]===i);
+      const el=document.createElement('button');
+      el.className='ghost midi-slot'+(midiLearn===i?' learning':'')+(k?' set':'');
+      el.innerHTML='<b>'+(i+1)+'</b><span>'+(midiLearn===i?'HIT A PAD…':(k?midiSrcLabel(k):'AUTO'))+'</span>';
+      el.title='Click, then hit the controller pad you want on pad '+(i+1);
+      el.onclick=()=>{ midiLearnSeq=false; midiLearn = midiLearn===i ? -1 : i; renderMidiList(); };
+      pads.appendChild(el);
+    }
+    const la=document.getElementById('midiLearnAll');
+    if(la) la.textContent = midiLearn>=0 ? 'STOP LEARN' : 'LEARN ALL 1→9';
+  }
   const list=document.getElementById('midiList'); if(!list) return; list.innerHTML='';
-  const ccs=Object.keys(midiSensMap).map(Number).sort((x,y)=>x-y);
+  const ccs=Object.keys(midiSensMap).map(Number).filter(cc=>midiPadMap['c'+cc]==null).sort((x,y)=>x-y);
   if(!ccs.length){ list.innerHTML='<div style="color:var(--dim);font-size:12px">No knobs yet — turn a knob to detect it.</div>'; return; }
   ccs.forEach(cc=>{
     const row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:12px';
@@ -1689,9 +1784,11 @@ function renderMidiList(){
     list.appendChild(row);
   });
 }
-function persistMidi(){ try{ localStorage.setItem('cutjam_midi', JSON.stringify(midiSensMap)); }catch(e){} }
-function restoreMidi(){ try{ const d=JSON.parse(localStorage.getItem('cutjam_midi')||'null'); if(d) midiSensMap=d; }catch(e){} }
-
+function midiLearnAll(){ if(midiLearn>=0){ midiLearn=-1; midiLearnSeq=false; } else { midiLearn=0; midiLearnSeq=true; } renderMidiList(); }
+function midiResetPads(){ midiPadMap={}; midiLearn=-1; midiLearnSeq=false; persistMidi(); renderMidiList(); toast('Pad map reset — auto layout'); }
+function persistMidi(){ try{ localStorage.setItem('cutjam_midi', JSON.stringify(midiSensMap)); localStorage.setItem('cutjam_midi_pads', JSON.stringify(midiPadMap)); }catch(e){} }
+function restoreMidi(){ try{ const d=JSON.parse(localStorage.getItem('cutjam_midi')||'null'); if(d) midiSensMap=d;
+  const p=JSON.parse(localStorage.getItem('cutjam_midi_pads')||'null'); if(p) midiPadMap=p; }catch(e){} }
 
 document.getElementById('audioInput').onchange=e=>{ if(e.target.files[0]) loadAudio(e.target.files[0]); };
 document.getElementById('playBtn').onclick=()=>{ ensureCtx(); togglePlay(); };
@@ -1720,6 +1817,8 @@ document.getElementById('viewBtn').onclick=cycleView;
 document.getElementById('midiBtn').onclick=openMidiConfig;
 document.getElementById('midiConnect').onclick=()=>initMIDI(true);
 document.getElementById('midiCloseBtn').onclick=closeMidiConfig;
+document.getElementById('midiLearnAll').onclick=midiLearnAll;
+document.getElementById('midiResetPads').onclick=midiResetPads;
 document.getElementById('midiBack').addEventListener('click',e=>{ if(e.target.id==='midiBack') closeMidiConfig(); });
 document.getElementById('shufBtn').onclick=()=>requestShuffle('content');
 document.getElementById('shufAllBtn').onclick=()=>requestShuffle('all');
@@ -1735,6 +1834,7 @@ document.querySelector('.stage').addEventListener('click',e=>{ if(e.target.class
 
 window.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT') return;
+  if(midiConfigOpen && e.key==='Escape'){ closeMidiConfig(); return; }
   if(document.getElementById('xmlBack').classList.contains('show')){
     if(e.key==='Escape') closeXmlExport();
     if(e.key==='Enter'){ readXmlOpts(); closeXmlExport(); exportXML(); }
@@ -1776,6 +1876,11 @@ window.addEventListener('resize',()=>{ refreshWave(); });
 try{ setView(localStorage.getItem('cutjam_view')||'disc'); }catch(e){ setView('disc'); }
 buildPads(); buildClips(); updateCounts(); restore(); buildClips(); updateCounts();
 restoreMidi(); initMIDI(); restoreXmlOpts();
+if(!FEATURES.xml){
+  ['exportXml','mExport'].forEach(id=>{ const b=document.getElementById(id); if(b){ b.classList.add('locked'); b.classList.remove('gold'); b.title='XML export — locked in the beta'; b.setAttribute('aria-disabled','true'); } });
+}
+if(!BETA){ const t=document.getElementById('betaTag'); if(t) t.remove(); }
+if(!FEATURES.xml){ const h=document.getElementById('hintNle'); if(h) h.textContent='CSV cut list · XML in the full version.'; }
 requestAnimationFrame(loop);
 </script>
 </body>
